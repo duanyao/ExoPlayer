@@ -46,6 +46,21 @@ import java.util.Locale;
 
   }
 
+  public static final Sample[] FF_UDP = new Sample[] {
+          new Sample("FFMpeg ts multicast",
+                  "udp://236.0.0.5:7020", Util.TYPE_OTHER),
+          new Sample("FFMpeg ts udp",
+                  //"udp://127.0.0.1:7020", Util.TYPE_OTHER),
+                  "udp://0.0.0.0:7020", Util.TYPE_OTHER),
+          new Sample("FFMpeg ts http",
+                  "http://172.16.9.134:8080", Util.TYPE_OTHER),
+          new Sample("FFMpeg ts hls",
+                  "http://172.16.9.134:8087/hls/.m3u8", Util.TYPE_HLS),
+          new Sample("webm", "http://172.16.9.134:8087/pig.webm",Util.TYPE_OTHER),
+          new Sample("ts file", "http://172.16.9.134:8087/d.ts",Util.TYPE_OTHER),
+          new Sample("mp4 file", "http://172.16.9.134:8087/d.mp4",Util.TYPE_OTHER),
+  };
+
   public static final Sample[] YOUTUBE_DASH_MP4 = new Sample[] {
     new Sample("Google Glass (MP4,H264)",
         "http://www.youtube.com/api/manifest/dash/id/bf5bb2419360daf1/source/youtube?"
