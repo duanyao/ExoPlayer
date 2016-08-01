@@ -406,5 +406,58 @@
         ]
       }
     ]
+  },
+  {
+    "name": "MPEG-TS",
+    "samples": [
+      {
+        "name": "h264 intra refresh middle (MediaCodec)",
+        "uri": "http://172.16.9.134:8087/h264-intra-refresh-middle.ts"
+      },
+      {
+        "name": "h264 intra refresh middle",
+        "uri": "http://172.16.9.134:8087/h264-intra-refresh-middle.ts" ,
+        "prefer_extension_decoders": true
+      },
+      {
+        "name": "h264 middle",
+        "uri": "http://172.16.9.134:8087/d-a.ts",
+        "prefer_extension_decoders": true
+      },
+      {
+        "name": "h264 intra refresh start",
+        "uri": "http://172.16.9.134:8087/screenBroadcast.ts",
+        "prefer_extension_decoders": true
+      },
+      {
+        "name": "h264 mp4 b-frame(MediaCodec)",
+        "uri": "http://172.16.9.134:8087/b-frame.mp4",
+        "prefer_extension_decoders": false
+      },
+      {
+        "name": "h264 mp4 b-frame",
+        "uri": "http://172.16.9.134:8087/b-frame.mp4",
+        "prefer_extension_decoders": true
+      },
+      {
+        "name": "webm with audio",
+        "uri": "http://172.16.9.134:8087/pig.webm",
+        "prefer_extension_decoders": true
+      },
+      {
+        "name": "webm with audio(emulator)",
+        "uri": "http://10.0.2.2:8087/pig.webm",
+        "prefer_extension_decoders": true
+      },
+      {
+        "name": "http live h264 intra refresh",
+        "uri": "http://172.16.9.134:7018/screenBroadcast",
+        "prefer_extension_decoders": true
+      },
+      {
+        "name": "http live h264 intra refresh(MediaCodec)",
+        "uri": "http://172.16.9.134:7018/screenBroadcast"
+      }
+    ]
   }
 ]

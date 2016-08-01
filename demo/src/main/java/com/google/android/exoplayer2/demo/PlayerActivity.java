@@ -49,6 +49,7 @@ import com.google.android.exoplayer2.ui.KeyCompatibleMediaController;
 import com.google.android.exoplayer2.ui.MediaControllerPrevNextClickListener;
 import com.google.android.exoplayer2.ui.PlayerControl;
 import com.google.android.exoplayer2.ui.SubtitleView;
+import com.google.android.exoplayer2.upstream.DefaultAllocator;
 import com.google.android.exoplayer2.upstream.DefaultBandwidthMeter;
 import com.google.android.exoplayer2.upstream.DefaultDataSourceFactory;
 import com.google.android.exoplayer2.upstream.DefaultHttpDataSource;
@@ -129,6 +130,8 @@ public class PlayerActivity extends Activity implements OnKeyListener, OnTouchLi
 
   private int playerPeriodIndex;
   private long playerPosition;
+
+  private Runnable playbackMonitor;
 
   // Activity lifecycle
 
@@ -271,7 +274,8 @@ public class PlayerActivity extends Activity implements OnKeyListener, OnTouchLi
       trackSelector.addListener(this);
       trackSelector.addListener(eventLogger);
       trackSelectionHelper = new TrackSelectionHelper(trackSelector, videoTrackSelectionFactory);
-      player = ExoPlayerFactory.newSimpleInstance(this, trackSelector, new DefaultLoadControl(),
+      player = ExoPlayerFactory.newSimpleInstance(this, trackSelector,
+              new DefaultLoadControl(new DefaultAllocator(8 * 1024), 10000, 20000, 500, 500),
           drmSessionManager, preferExtensionDecoders);
       player.addListener(this);
       player.addListener(eventLogger);
@@ -282,6 +286,28 @@ public class PlayerActivity extends Activity implements OnKeyListener, OnTouchLi
       player.setVideoSurfaceHolder(surfaceView.getHolder());
       player.seekTo(playerPeriodIndex, playerPosition);
       player.setPlayWhenReady(true);
+      playbackMonitor = new Runnable() {
+        @Override
+        public void run() {
+          if (this == playbackMonitor && player != null) {
+            surfaceView.postDelayed(this, 500);
+          }
+          if (player == null) {
+            return;
+          }
+          long bp = player.getBufferedPosition(), cp = player.getCurrentPosition(), bd = bp - cp;
+          System.out.println(">>>>playbackMonitor:buffered pos:" + bp + ", play pos:" + cp + ", delay(est):" + bd);
+          float speed = 0.5f;
+          if (bd > 4000) speed = 2;
+          else if (bd > 2000) speed = 1.5f;
+          else if (bd > 500) speed = 1.25f;
+          if (player.getPlaybackSpeed() != speed) {
+            player.setPlaybackSpeed(speed);
+            System.out.println(">>>>playbackMonitor:change speed to " + speed);
+          }
+        }
+      };
+      surfaceView.postDelayed(playbackMonitor, 500);
       mediaController.setMediaPlayer(new PlayerControl(player));
       mediaController.setPrevNextListeners(new MediaControllerPrevNextClickListener(player, true),
           new MediaControllerPrevNextClickListener(player, false));
@@ -289,6 +315,7 @@ public class PlayerActivity extends Activity implements OnKeyListener, OnTouchLi
       debugViewHelper = new DebugTextViewHelper(player, debugTextView);
       debugViewHelper.start();
       playerNeedsSource = true;
+
     }
     if (playerNeedsSource) {
       String action = intent.getAction();
