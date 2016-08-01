@@ -17,6 +17,9 @@
 #include <stdlib.h>
 #include <android/log.h>
 
+#define ENABLE_VIDEO
+//#define ENABLE_AUDIO
+
 extern "C" {
 #ifdef __cplusplus
 #define __STDC_CONSTANT_MACROS
@@ -26,7 +29,15 @@ extern "C" {
 #include <stdint.h>
 #endif
 #include <libavcodec/avcodec.h>
+
+#ifdef ENABLE_AUDIO
 #include <libavresample/avresample.h>
+#endif
+
+#ifdef ENABLE_VIDEO
+#include <libswscale/swscale.h>
+#endif
+
 #include <libavutil/error.h>
 #include <libavutil/opt.h>
 }
@@ -67,7 +78,7 @@ AVCodecContext *createContext(JNIEnv *env, AVCodec *codec,
  * written, or a negative value in the case of an error.
  */
 int decodePacket(AVCodecContext *context, AVPacket *packet,
-                 uint8_t *outputBuffer, int outputSize);
+                 jboolean endOfInput, uint8_t *outputBuffer, int outputLimit);
 
 /**
  * Outputs a log message describing the avcodec error number.
@@ -106,37 +117,40 @@ FUNC(jlong, nativeInitialize, jstring codecName, jbyteArray extraData) {
 }
 
 FUNC(jint, nativeDecode, jlong context, jobject inputData, jint inputSize,
-     jobject outputData, jint outputSize) {
+    jlong pts, jboolean endOfInput, jobject outputData, jint outputLimit) {
   if (!context) {
     LOGE("Context must be non-NULL.");
-    return -1;
+    return AVERROR(EINVAL);
   }
   if (!inputData || !outputData) {
     LOGE("Input and output buffers must be non-NULL.");
-    return -1;
+    return AVERROR(EINVAL);
   }
   if (inputSize < 0) {
     LOGE("Invalid input buffer size: %d.", inputSize);
-    return -1;
+    return AVERROR(EINVAL);
   }
-  if (outputSize < 0) {
-    LOGE("Invalid output buffer length: %d", outputSize);
-    return -1;
+  if (outputLimit < 0) {
+    LOGE("Invalid output buffer length: %d", outputLimit);
+    return AVERROR(EINVAL);
   }
   uint8_t *inputBuffer = (uint8_t *) env->GetDirectBufferAddress(inputData);
   uint8_t *outputBuffer = (uint8_t *) env->GetDirectBufferAddress(outputData);
   AVPacket packet;
   av_init_packet(&packet);
-  packet.data = inputBuffer;
+  packet.data = inputSize > 0 ? inputBuffer : NULL;
   packet.size = inputSize;
-  return decodePacket((AVCodecContext *) context, &packet, outputBuffer,
-                      outputSize);
+  packet.pts = pts;
+  packet.dts = AV_NOPTS_VALUE;
+  return decodePacket((AVCodecContext *) context, &packet, endOfInput, outputBuffer,
+                      outputLimit);
 }
 
+#ifdef ENABLE_AUDIO
 FUNC(jint, nativeGetChannelCount, jlong context) {
   if (!context) {
     LOGE("Context must be non-NULL.");
-    return -1;
+    return AVERROR(EINVAL);
   }
   return ((AVCodecContext *) context)->channels;
 }
@@ -144,10 +158,75 @@ FUNC(jint, nativeGetChannelCount, jlong context) {
 FUNC(jint, nativeGetSampleRate, jlong context) {
   if (!context) {
     LOGE("Context must be non-NULL.");
-    return -1;
+    return AVERROR(EINVAL);
   }
   return ((AVCodecContext *) context)->sample_rate;
 }
+#endif //#ifdef ENABLE_AUDIO
+
+#ifdef ENABLE_VIDEO
+FUNC(jint, nativeGetWidth, jlong avFrame) {
+  if (!avFrame) {
+    LOGE("avFrame must be non-NULL.");
+    return AVERROR(EINVAL);
+  }
+  return ((AVFrame *) avFrame)->width;
+}
+
+FUNC(jint, nativeGetHeight, jlong avFrame) {
+  if (!avFrame) {
+    LOGE("avFrame must be non-NULL.");
+    return AVERROR(EINVAL);
+  }
+  return ((AVFrame *) avFrame)->height;
+}
+
+FUNC(jlong, nativeGetPresentationTime, jlong avFrame) {
+  if (!avFrame) {
+    LOGE("avFrame must be non-NULL.");
+    return AVERROR(EINVAL);
+  }
+  return ((AVFrame *) avFrame)->pkt_pts;
+}
+
+FUNC(jlong, nativeCreateSws, jlong jFrame, jint scaledWidth, jint scaledHeight) {
+  AVFrame *frame = (AVFrame *) jFrame;
+  LOGE(">>>>nativeCreateSws:sw=%d,sh=%d,w=%d,h=%d,fmt=%d", scaledWidth, scaledHeight, frame->width, frame->height, frame->format);
+  return (jlong)sws_getContext(
+                frame->width,
+                frame->height,
+                (AVPixelFormat)frame->format,
+                scaledWidth,
+                scaledHeight,
+                AV_PIX_FMT_RGB565,
+                SWS_BILINEAR,
+                NULL,
+                NULL,
+                NULL
+               );
+
+}
+
+FUNC(void, nativeFreeSws, jlong sws) {
+  sws_freeContext((SwsContext *) sws);
+}
+
+FUNC(jint, nativeScaleFrame, jlong sws, jlong jFrame, jobject outputData, jint outputLineSize) {
+  AVFrame *frame = (AVFrame *) jFrame;
+  SwsContext *swsContext = (SwsContext *) sws;
+  uint8_t *dest[] = { (uint8_t *) env->GetDirectBufferAddress(outputData) };
+  int destLineSize[] = { outputLineSize };
+  return sws_scale(swsContext, frame->data, frame->linesize, 0, frame->height, dest, destLineSize);
+}
+
+FUNC(void, nativeFreeFrame, jlong jFrame) {
+  if (!jFrame) {
+    return;
+  }
+  AVFrame *frame = (AVFrame*) jFrame;
+  av_frame_free(&frame);
+}
+#endif //#ifdef ENABLE_VIDEO
 
 FUNC(jlong, nativeReset, jlong jContext, jbyteArray extraData) {
   AVCodecContext *context = (AVCodecContext *) jContext;
@@ -203,7 +282,7 @@ AVCodecContext *createContext(JNIEnv *env, AVCodec *codec,
     context->extradata =
         (uint8_t *) av_malloc(size + AV_INPUT_BUFFER_PADDING_SIZE);
     if (!context->extradata) {
-      LOGE("Failed to allocate extradata.");
+      LOGE(">>>>Failed to allocate extradata.");
       releaseContext(context);
       return NULL;
     }
@@ -211,94 +290,133 @@ AVCodecContext *createContext(JNIEnv *env, AVCodec *codec,
   }
   int result = avcodec_open2(context, codec, NULL);
   if (result < 0) {
-    logError("avcodec_open2", result);
+    logError(">>>>avcodec_open2", result);
     releaseContext(context);
     return NULL;
+  }
+  if (context->codec_type == AVMEDIA_TYPE_VIDEO) {
+    context->delay = 0;
   }
   return context;
 }
 
-int decodePacket(AVCodecContext *context, AVPacket *packet,
-                 uint8_t *outputBuffer, int outputSize) {
+int decodePacket(AVCodecContext *context, AVPacket *packet, jboolean endOfInput,
+                 uint8_t *outputBuffer, int outputLimit) {
   int result = 0;
   // Queue input data.
-  result = avcodec_send_packet(context, packet);
-  if (result) {
-    logError("avcodec_send_packet", result);
-    return result;
+  //LOGE(">>>>before avcodec_send_packet.");
+  if (packet->size > 0 || endOfInput) {
+    result = avcodec_send_packet(context, packet);
+    if (result != 0 && result != AVERROR_EOF) {
+      logError(">>>>avcodec_send_packet", result);
+      if (AVERROR_INVALIDDATA == result) {
+        LOGE(">>>>avcodec_send_packet: invalid data, try to continue.");
+        result = 0;
+      } else {
+        return result;
+      }
+    } else {
+      LOGE(">>>>avcodec_send_packet OK. pts=%lld", packet->pts);
+    }
+  } else {
+    LOGE(">>>>avcodec_send_packet: empty");
   }
 
   // Dequeue output data until it runs out.
   int outSize = 0;
   while (true) {
+    //LOGE(">>>>before av_frame_alloc.");
     AVFrame *frame = av_frame_alloc();
     if (!frame) {
-      LOGE("Failed to allocate output frame.");
-      return -1;
+      LOGE(">>>Failed to allocate output frame.");
+      return AVERROR(ENOMEM);
     }
+    //LOGE(">>>>before avcodec_receive_frame");
     result = avcodec_receive_frame(context, frame);
-    if (result) {
+    if (result != 0) {
       av_frame_free(&frame);
       if (result == AVERROR(EAGAIN)) {
+        LOGE(">>>>after avcodec_receive_frame: EAGAIN(%d)", EAGAIN);
         break;
+      } else {
+        //if (result != AVERROR_EOF) {
+          logError(">>>>avcodec_receive_frame", result);
+        //}
+        return result;
       }
-      logError("avcodec_receive_frame", result);
-      return result;
     }
 
-    // Resample output.
-    AVSampleFormat sampleFormat = context->sample_fmt;
-    int channelCount = context->channels;
-    int channelLayout = context->channel_layout;
-    int sampleRate = context->sample_rate;
-    int sampleCount = frame->nb_samples;
-    int dataSize = av_samples_get_buffer_size(NULL, channelCount, sampleCount,
-                                              sampleFormat, 1);
-    AVAudioResampleContext *resampleContext;
-    if (context->opaque) {
-      resampleContext = (AVAudioResampleContext *)context->opaque;
-    } else {
-      resampleContext = avresample_alloc_context();
-      av_opt_set_int(resampleContext, "in_channel_layout",  channelLayout, 0);
-      av_opt_set_int(resampleContext, "out_channel_layout", channelLayout, 0);
-      av_opt_set_int(resampleContext, "in_sample_rate", sampleRate, 0);
-      av_opt_set_int(resampleContext, "out_sample_rate", sampleRate, 0);
-      av_opt_set_int(resampleContext, "in_sample_fmt", sampleFormat, 0);
-      av_opt_set_int(resampleContext, "out_sample_fmt", OUTPUT_FORMAT, 0);
-      result = avresample_open(resampleContext);
-      if (result < 0) {
-        logError("avresample_open", result);
-        av_frame_free(&frame);
-        return -1;
+    if (context->codec_type == AVMEDIA_TYPE_VIDEO) {
+      LOGE(">>>>got video frame:w=%d,h=%d,key=%d,pts=%lld,pkt_pts=%lld", frame->width, frame->height, frame->key_frame, frame->pts, frame->pkt_pts);
+      outSize = sizeof(jlong);
+      if (outputLimit < outSize) {
+        LOGE("Output buffer size (%d) too small for output data (%d).",
+             outputLimit, outSize);
+        return AVERROR_BUFFER_TOO_SMALL;
       }
-      context->opaque = resampleContext;
-    }
-    int inSampleSize = av_get_bytes_per_sample(sampleFormat);
-    int outSampleSize = av_get_bytes_per_sample(OUTPUT_FORMAT);
-    int outSamples = avresample_get_out_samples(resampleContext, sampleCount);
-    int bufferOutSize = outSampleSize * channelCount * outSamples;
-    if (outSize + bufferOutSize > outputSize) {
-      LOGE("Output buffer size (%d) too small for output data (%d).",
-           outputSize, outSize + bufferOutSize);
+      *((jlong *) outputBuffer) = (jlong) frame;
+      //LOGE(">>>>got video frame:addr=%lld, realAddr=%x", *((jlong*)outputBuffer), (uintptr_t)frame);
+      return outSize; // for video there is no more than 1 output frame for on input packet, so no need to loop.
+    } else {
+#ifdef ENABLE_AUDIO
+      // Resample output.
+      AVSampleFormat sampleFormat = context->sample_fmt;
+      int channelCount = context->channels;
+      int channelLayout = context->channel_layout;
+      int sampleRate = context->sample_rate;
+      int sampleCount = frame->nb_samples;
+      int dataSize = av_samples_get_buffer_size(NULL, channelCount, sampleCount,
+                                                sampleFormat, 1);
+      AVAudioResampleContext *resampleContext;
+      if (context->opaque) {
+        resampleContext = (AVAudioResampleContext *)context->opaque;
+      } else {
+        resampleContext = avresample_alloc_context();
+        av_opt_set_int(resampleContext, "in_channel_layout",  channelLayout, 0);
+        av_opt_set_int(resampleContext, "out_channel_layout", channelLayout, 0);
+        av_opt_set_int(resampleContext, "in_sample_rate", sampleRate, 0);
+        av_opt_set_int(resampleContext, "out_sample_rate", sampleRate, 0);
+        av_opt_set_int(resampleContext, "in_sample_fmt", sampleFormat, 0);
+        av_opt_set_int(resampleContext, "out_sample_fmt", OUTPUT_FORMAT, 0);
+        result = avresample_open(resampleContext);
+        if (result != 0) {
+          logError("avresample_open", result);
+          av_frame_free(&frame);
+          return result;
+        }
+        context->opaque = resampleContext;
+      }
+      int inSampleSize = av_get_bytes_per_sample(sampleFormat);
+      int outSampleSize = av_get_bytes_per_sample(OUTPUT_FORMAT);
+      int outSamples = avresample_get_out_samples(resampleContext, sampleCount);
+      int bufferOutSize = outSampleSize * channelCount * outSamples;
+      if (outSize + bufferOutSize > outputLimit) {
+        LOGE("Output buffer size (%d) too small for output data (%d).",
+             outputLimit, outSize + bufferOutSize);
+        av_frame_free(&frame);
+        return AVERROR_BUFFER_TOO_SMALL;
+      }
+      result = avresample_convert(resampleContext, &outputBuffer, bufferOutSize,
+                                  outSamples, frame->data, frame->linesize[0],
+                                  sampleCount);
       av_frame_free(&frame);
-      return -1;
+      if (result != 0) {
+        logError("avresample_convert", result);
+        return result;
+      }
+      int available = avresample_available(resampleContext);
+      if (available != 0) {
+        LOGE("Expected no samples remaining after resampling, but found %d.",
+             available);
+        return AVERROR_BUG;
+      }
+      outputBuffer += bufferOutSize;
+      outSize += bufferOutSize;
+#else
+      LOGE(">>>>Error: ENABLE_AUDIO not defined, but decoding audio.");
+      av_frame_free(&frame);
+#endif
     }
-    result = avresample_convert(resampleContext, &outputBuffer, bufferOutSize,
-                                outSamples, frame->data, frame->linesize[0],
-                                sampleCount);
-    av_frame_free(&frame);
-    if (result < 0) {
-      logError("avresample_convert", result);
-      return result;
-    }
-    int available = avresample_available(resampleContext);
-    if (available != 0) {
-      LOGE("Expected no samples remaining after resampling, but found %d.",
-           available);
-      return -1;
-    }
-    outputBuffer += bufferOutSize;
-    outSize += bufferOutSize;
   }
   return outSize;
 }
@@ -306,7 +424,7 @@ int decodePacket(AVCodecContext *context, AVPacket *packet,
 void logError(const char *functionName, int errorNumber) {
   char *buffer = (char *) malloc(ERROR_STRING_BUFFER_LENGTH * sizeof(char));
   av_strerror(errorNumber, buffer, ERROR_STRING_BUFFER_LENGTH);
-  LOGE("Error in %s: %s", functionName, buffer);
+  LOGE(">>>>Error in %s: %s", functionName, buffer);
   free(buffer);
 }
 
@@ -314,11 +432,14 @@ void releaseContext(AVCodecContext *context) {
   if (!context) {
     return;
   }
+#ifdef ENABLE_AUDIO
   AVAudioResampleContext *resampleContext;
   if (resampleContext = (AVAudioResampleContext *)context->opaque) {
     avresample_free(&resampleContext);
     context->opaque = NULL;
   }
+#endif
+  LOGE(">>>>releaseContext");
   avcodec_free_context(&context);
 }
 

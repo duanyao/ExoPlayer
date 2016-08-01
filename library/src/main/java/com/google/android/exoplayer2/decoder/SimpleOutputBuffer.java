@@ -15,6 +15,8 @@
  */
 package com.google.android.exoplayer2.decoder;
 
+import android.graphics.Bitmap;
+
 import java.nio.ByteBuffer;
 
 /**
@@ -25,6 +27,12 @@ public class SimpleOutputBuffer extends OutputBuffer {
   private final SimpleDecoder<?, SimpleOutputBuffer, ?> owner;
 
   public ByteBuffer data;
+
+  public int width;
+
+  public int height;
+
+  public Bitmap.Config pixelFormat;
 
   public SimpleOutputBuffer(SimpleDecoder<?, SimpleOutputBuffer, ?> owner) {
     this.owner = owner;
@@ -53,6 +61,8 @@ public class SimpleOutputBuffer extends OutputBuffer {
     if (data != null) {
       data.clear();
     }
+    width = height = 0;
+    pixelFormat = null;
   }
 
   @Override

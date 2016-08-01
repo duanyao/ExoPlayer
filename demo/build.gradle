@@ -44,6 +44,7 @@ android {
 
 dependencies {
     compile project(':library')
+    compile project(':extension-ffmpeg')
     demo_extCompile project(path: ':extension-ffmpeg')
     demo_extCompile project(path: ':extension-flac')
     demo_extCompile project(path: ':extension-opus')

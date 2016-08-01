@@ -138,6 +138,7 @@ public abstract class SimpleDecoder<I extends DecoderInputBuffer, O extends Outp
       if (dequeuedInputBuffer != null) {
         releaseInputBufferInternal(dequeuedInputBuffer);
         dequeuedInputBuffer = null;
+        System.out.println(">>>>SimpleDecoder:dequeuedInputBuffer clear");
       }
       while (!queuedInputBuffers.isEmpty()) {
         releaseInputBufferInternal(queuedInputBuffers.removeFirst());
@@ -214,18 +215,14 @@ public abstract class SimpleDecoder<I extends DecoderInputBuffer, O extends Outp
       flushed = false;
     }
 
-    if (inputBuffer.isEndOfStream()) {
-      outputBuffer.addFlag(C.BUFFER_FLAG_END_OF_STREAM);
-    } else {
-      if (inputBuffer.isDecodeOnly()) {
-        outputBuffer.addFlag(C.BUFFER_FLAG_DECODE_ONLY);
-      }
-      exception = decode(inputBuffer, outputBuffer, resetDecoder);
-      if (exception != null) {
-        // Memory barrier to ensure that the decoder exception is visible from the playback thread.
-        synchronized (lock) {}
-        return false;
-      }
+    if (inputBuffer.isDecodeOnly()) {
+      outputBuffer.addFlag(C.BUFFER_FLAG_DECODE_ONLY);
+    }
+    exception = decode(inputBuffer, outputBuffer, resetDecoder);
+    if (exception != null) {
+      // Memory barrier to ensure that the decoder exception is visible from the playback thread.
+      synchronized (lock) {}
+      return false;
     }
 
     synchronized (lock) {

@@ -388,6 +388,7 @@ public class MediaCodecVideoRenderer extends MediaCodecRenderer {
   protected boolean processOutputBuffer(long positionUs, long elapsedRealtimeUs, MediaCodec codec,
       ByteBuffer buffer, int bufferIndex, int bufferFlags, long bufferPresentationTimeUs,
       boolean shouldSkip) {
+    //System.out.println(">>>>MCVR:processOutputBuffer:cur=" + positionUs + ",real=" + elapsedRealtimeUs + ",pts=" + bufferPresentationTimeUs);
     if (shouldSkip) {
       skipOutputBuffer(codec, bufferIndex);
       return true;
@@ -424,11 +425,12 @@ public class MediaCodecVideoRenderer extends MediaCodecRenderer {
       dropOutputBuffer(codec, bufferIndex);
       return true;
     }
-
+    System.out.println(">>>>MCVR:processOutputBuffer:cur=" + positionUs + ",real=" + adjustedReleaseTimeNs + ",pts=" + bufferPresentationTimeUs);
     if (Util.SDK_INT >= 21) {
       // Let the underlying framework time the release.
       if (earlyUs < 50000) {
         renderOutputBufferV21(codec, bufferIndex, adjustedReleaseTimeNs);
+
         return true;
       }
     } else {

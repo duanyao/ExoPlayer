@@ -256,7 +256,8 @@ public final class DefaultTrackOutput implements TrackOutput {
    */
   public int readData(FormatHolder formatHolder, DecoderInputBuffer buffer, boolean loadingFinished,
       long decodeOnlyUntilUs) {
-    switch (infoQueue.readData(formatHolder, buffer, downstreamFormat, extrasHolder)) {
+    int result = infoQueue.readData(formatHolder, buffer, downstreamFormat, extrasHolder);
+    switch (result) {
       case C.RESULT_NOTHING_READ:
         if (loadingFinished) {
           buffer.setFlags(C.BUFFER_FLAG_END_OF_STREAM);

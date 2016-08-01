@@ -491,6 +491,19 @@ public final class SimpleExoPlayer implements ExoPlayer {
     } catch (Exception e) {
       throw new RuntimeException(e);
     }
+
+    try {
+      Class<?> clazz =
+              Class.forName("com.google.android.exoplayer2.ext.ffmpeg.FfmpegVideoRenderer");
+      Constructor<?> constructor = clazz.getConstructor(Handler.class,
+              VideoRendererEventListener.class);
+      renderersList.add((Renderer) constructor.newInstance(mainHandler, componentListener));
+      Log.i(TAG, "Loaded FfmpegAudioTrackRenderer.");
+    } catch (ClassNotFoundException e) {
+      // Expected if the app was built without the extension.
+    } catch (Exception e) {
+      throw new RuntimeException(e);
+    }
   }
 
   private void setVideoSurfaceInternal(Surface surface) {

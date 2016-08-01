@@ -644,6 +644,7 @@ public abstract class MediaCodecRenderer extends BaseRenderer {
 
       buffer.flip();
       onQueueInputBuffer(buffer);
+      System.out.println(">>>>MCR:queueInputBuffer:pts=" + buffer.timeUs);
 
       if (bufferEncrypted) {
         MediaCodec.CryptoInfo cryptoInfo = getFrameworkCryptoInfo(buffer,
@@ -847,6 +848,7 @@ public abstract class MediaCodecRenderer extends BaseRenderer {
 
     if (outputIndex < 0) {
       outputIndex = codec.dequeueOutputBuffer(outputBufferInfo, getDequeueOutputBufferTimeoutUs());
+      System.out.println(">>>>MCR:dequeueOutputBuffer:pts=" + outputBufferInfo.presentationTimeUs);
       if (outputIndex >= 0) {
         // We've dequeued a buffer.
         if (shouldSkipAdaptationWorkaroundOutputBuffer) {

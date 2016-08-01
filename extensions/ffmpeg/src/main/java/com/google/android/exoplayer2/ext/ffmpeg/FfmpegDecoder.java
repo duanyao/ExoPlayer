@@ -15,12 +15,17 @@
  */
 package com.google.android.exoplayer2.ext.ffmpeg;
 
+
+import com.google.android.exoplayer2.C;
 import com.google.android.exoplayer2.decoder.DecoderInputBuffer;
 import com.google.android.exoplayer2.decoder.SimpleDecoder;
 import com.google.android.exoplayer2.decoder.SimpleOutputBuffer;
 import com.google.android.exoplayer2.util.MimeTypes;
 
+import android.graphics.Bitmap;
+
 import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.util.List;
 
 /**
@@ -32,21 +37,30 @@ import java.util.List;
   private static final String TAG = "FfmpegDecoder";
 
   /**
+   * End of file. See AVERROR_EOF in ffmpeg/libavutil/error.h
+   */
+  private static final int AVERROR_EOF = makeErrorNumber('E', 'O', 'F', ' ');
+
+  /**
    * Whether the underlying FFmpeg library is available.
    */
   public static final boolean IS_AVAILABLE;
   static {
     boolean isAvailable;
     try {
-      System.loadLibrary("avutil");
-      System.loadLibrary("avresample");
-      System.loadLibrary("avcodec");
       System.loadLibrary("ffmpeg");
       isAvailable = true;
     } catch (UnsatisfiedLinkError exception) {
       isAvailable = false;
     }
     IS_AVAILABLE = isAvailable;
+  }
+
+  /**
+   * Port of FFERRTAG() in ffmpeg/libavutil/error.h
+   */
+  private static int makeErrorNumber(char a, char b, char c, char d) {
+    return  -((a & 0xFF) | ((b & 0xFF) << 8) | ((c & 0xFF) << 16) | ((d & 0xFF) << 24));
   }
 
   /**
@@ -58,20 +72,33 @@ import java.util.List;
   }
 
   // Space for 64 ms of 6 channel 48 kHz 16-bit PCM audio.
-  private static final int OUTPUT_BUFFER_SIZE = 1536 * 6 * 2 * 2;
-
+  private static final int AUDIO_OUTPUT_BUFFER_SIZE = 1536 * 6 * 2 * 2;
+  // for pointer to AVFrame
+  private static final int VIDEO_OUTPUT_BUFFER_SIZE = 8;
   private final String codecName;
+  private final boolean isVideo;
+  private final boolean isAudio;
   private final byte[] extraData;
-
   private long nativeContext; // May be reassigned on resetting the codec.
   private boolean hasOutputFormat;
   private volatile int channelCount;
   private volatile int sampleRate;
+  private int width;
+  private int height;
+  private int scaledWidth;
+  private int scaledHeight;
+  private int scaledSize;
+  private long avFrame;
+  private long swsContext;
+  private ByteBuffer scaledFrame;
+  private boolean isDecodeOnly;
 
   public FfmpegDecoder(int numInputBuffers, int numOutputBuffers, int initialInputBufferSize,
       String mimeType, List<byte[]> initializationData) throws FfmpegDecoderException {
     super(new DecoderInputBuffer[numInputBuffers], new SimpleOutputBuffer[numOutputBuffers]);
     codecName = getCodecName(mimeType);
+    isAudio = MimeTypes.isAudio(mimeType);
+    isVideo = MimeTypes.isVideo(mimeType);
     extraData = getExtraData(mimeType, initializationData);
     nativeContext = nativeInitialize(codecName, extraData);
     if (nativeContext == 0) {
@@ -98,27 +125,112 @@ import java.util.List;
   @Override
   public FfmpegDecoderException decode(DecoderInputBuffer inputBuffer,
       SimpleOutputBuffer outputBuffer, boolean reset) {
+    //System.out.println(">>>>FfmpegDecoder:decode:input:(size,ts):\t" + inputBuffer.data.limit() + "\t" + inputBuffer.timeUs);
+    outputBuffer.clear();
+    outputBuffer.timeUs = Long.MIN_VALUE;
+    if (outputBuffer.data != null) {
+      outputBuffer.data.limit(0);
+    }
+
     if (reset) {
+      isDecodeOnly = false;
       nativeContext = nativeReset(nativeContext, extraData);
       if (nativeContext == 0) {
         return new FfmpegDecoderException("Error resetting (see logcat).");
       }
     }
+
+    isDecodeOnly = inputBuffer.isDecodeOnly();
     ByteBuffer inputData = inputBuffer.data;
     int inputSize = inputData.limit();
-    ByteBuffer outputData = outputBuffer.init(inputBuffer.timeUs, OUTPUT_BUFFER_SIZE);
-    int result = nativeDecode(nativeContext, inputData, inputSize, outputData, OUTPUT_BUFFER_SIZE);
+
+    if (inputBuffer.isEndOfStream()) {
+      inputData.limit(0);
+      inputSize = 0;
+      System.out.println(">>>>FfmpegDecoder:decode:input EOS: input ts=" + inputBuffer.timeUs);
+    }
+
+    ByteBuffer outputData = outputBuffer.init(Long.MIN_VALUE, isAudio? AUDIO_OUTPUT_BUFFER_SIZE : VIDEO_OUTPUT_BUFFER_SIZE);
+    int result = nativeDecode(nativeContext, inputData, inputSize, inputBuffer.timeUs, inputBuffer.isEndOfStream(), outputData, outputData.limit());
     if (result < 0) {
-      return new FfmpegDecoderException("Error decoding (see logcat). Code: " + result);
+      outputData.limit(0);
+      if (result == AVERROR_EOF) {
+        outputBuffer.addFlag(C.BUFFER_FLAG_END_OF_STREAM);
+      } else {
+        return new FfmpegDecoderException("Error decoding (see logcat). Code: " + result);
+      }
+    } else {
+      outputData.position(0);
+      outputData.limit(result);
     }
-    if (!hasOutputFormat) {
-      channelCount = nativeGetChannelCount(nativeContext);
-      sampleRate = nativeGetSampleRate(nativeContext);
-      hasOutputFormat = true;
+
+    if (isAudio && !hasOutputFormat) {
+        channelCount = nativeGetChannelCount(nativeContext);
+        sampleRate = nativeGetSampleRate(nativeContext);
+        hasOutputFormat = true;
     }
-    outputBuffer.data.position(0);
-    outputBuffer.data.limit(result);
+
+    if (isVideo) {
+      if (result == VIDEO_OUTPUT_BUFFER_SIZE) {
+        System.out.println(">>>>FfmpegDecoder:got video frame");
+        outputData.order(ByteOrder.nativeOrder());
+        avFrame = outputData.getLong();
+        outputBuffer.timeUs = nativeGetPresentationTime(avFrame);
+        maybeUpdateDimension();
+        if (outputData.capacity() >= scaledSize) {
+          scaledFrame = outputData;
+        } else {
+          scaledFrame = ByteBuffer.allocateDirect(scaledSize);
+        }
+        int scaledLineSize = scaledWidth * 2; //RGB565
+        int scaleResult = nativeScaleFrame(swsContext, avFrame, scaledFrame, scaledLineSize);
+        nativeFreeFrame(avFrame);
+        avFrame = 0;
+        if (scaleResult != scaledHeight) {
+          System.out.println(">>>>nativeScaleFrame failed:" + scaleResult);
+          outputData.limit(0);
+        } else {
+          scaledFrame.position(0);
+          scaledFrame.limit(scaledSize);
+          outputBuffer.data = scaledFrame;
+          outputBuffer.width = scaledWidth;
+          outputBuffer.height = scaledHeight;
+          outputBuffer.pixelFormat = Bitmap.Config.RGB_565;
+        }
+      } else {
+        System.out.println(">>>>FfmpegDecoder:not got video frame");
+        outputData.limit(0);
+      }
+    } else if (inputSize > 0) {
+        outputBuffer.timeUs = inputBuffer.timeUs;
+    }
+
+    if (outputBuffer.isEndOfStream()) {
+      System.out.println(">>>>FfmpegDecoder:decode:out eos=" + outputBuffer.timeUs);
+    }
+    if (isDecodeOnly) {
+      outputBuffer.setFlags(C.BUFFER_FLAG_DECODE_ONLY);
+    }
     return null;
+  }
+
+  private void maybeUpdateDimension() {
+    int w = nativeGetWidth(avFrame), h = nativeGetHeight(avFrame);
+    if (!hasOutputFormat) {
+      hasOutputFormat = true;
+      System.out.println(">>>>FfmpegDecoder:got video dim:width=" + w + ",height=" + h);
+    }
+
+    if (w != width || h != height) {
+      width = w;
+      height = h;
+      scaledWidth = w;
+      scaledHeight = h;
+      scaledSize = 2 * scaledWidth * scaledHeight; // RGB565, 16bits/pixel
+      nativeFreeSws(swsContext);
+      swsContext = nativeCreateSws(avFrame, scaledWidth, scaledHeight);
+      if (swsContext == 0) throw new OutOfMemoryError();
+    }
   }
 
   @Override
@@ -126,6 +238,10 @@ import java.util.List;
     super.release();
     nativeRelease(nativeContext);
     nativeContext = 0;
+    nativeFreeSws(swsContext);
+    swsContext = 0;
+    nativeFreeFrame(avFrame);
+    avFrame = 0;
   }
 
   /**
@@ -147,6 +263,7 @@ import java.util.List;
    * not required.
    */
   private static byte[] getExtraData(String mimeType, List<byte[]> initializationData) {
+    byte[] extraData;
     switch (mimeType) {
       case MimeTypes.AUDIO_AAC:
       case MimeTypes.AUDIO_OPUS:
@@ -154,7 +271,7 @@ import java.util.List;
       case MimeTypes.AUDIO_VORBIS:
         byte[] header0 = initializationData.get(0);
         byte[] header1 = initializationData.get(1);
-        byte[] extraData = new byte[header0.length + header1.length + 6];
+        extraData = new byte[header0.length + header1.length + 6];
         extraData[0] = (byte) (header0.length >> 8);
         extraData[1] = (byte) (header0.length & 0xFF);
         System.arraycopy(header0, 0, extraData, 2, header0.length);
@@ -163,6 +280,13 @@ import java.util.List;
         extraData[header0.length + 4] =  (byte) (header1.length >> 8);
         extraData[header0.length + 5] = (byte) (header1.length & 0xFF);
         System.arraycopy(header1, 0, extraData, header0.length + 6, header1.length);
+        return extraData;
+      case MimeTypes.VIDEO_H264:
+        if (initializationData == null || initializationData.size() == 0) return null;
+        byte[] a1 = initializationData.get(0), a2 = initializationData.get(1);
+        extraData = new byte[a1.length + a2.length];
+        System.arraycopy(a1, 0, extraData, 0, a1.length);
+        System.arraycopy(a2, 0, extraData, a1.length, a2.length);
         return extraData;
       default:
         // Other codecs do not require extra data.
@@ -201,6 +325,8 @@ import java.util.List;
         return "amrwb";
       case MimeTypes.AUDIO_FLAC:
         return "flac";
+      case MimeTypes.VIDEO_H264:
+        return "h264";
       default:
         return null;
     }
@@ -209,11 +335,18 @@ import java.util.List;
   private static native String nativeGetFfmpegVersion();
   private static native boolean nativeHasDecoder(String codecName);
   private native long nativeInitialize(String codecName, byte[] extraData);
-  private native int nativeDecode(long context, ByteBuffer inputData, int inputSize,
-      ByteBuffer outputData, int outputSize);
+  private native int nativeDecode(long context, ByteBuffer inputData, int inputSize, long pts,
+      boolean endOfInput, ByteBuffer outputData, int outputSize);
   private native int nativeGetChannelCount(long context);
   private native int nativeGetSampleRate(long context);
+  private native int nativeGetWidth(long avFramePtr);
+  private native int nativeGetHeight(long avFramePtr);
+  private native long nativeGetPresentationTime(long avFramePtr);
+  private native long nativeCreateSws(long avFramePtr, int scaledWidth, int scaledHeight);
+  private native void nativeFreeSws(long swsPtr);
+  private native int nativeScaleFrame(long swsPtr, long avFramePtr, ByteBuffer outputData,
+      int outputLineSize);
+  private native void nativeFreeFrame(long avFramePtr);
   private native long nativeReset(long context, byte[] extraData);
   private native void nativeRelease(long context);
-
 }
