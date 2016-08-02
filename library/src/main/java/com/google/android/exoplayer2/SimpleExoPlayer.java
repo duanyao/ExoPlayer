@@ -411,6 +411,12 @@ public final class SimpleExoPlayer implements ExoPlayer {
     return player.getBufferedPercentage();
   }
 
+  @Override
+  public float getPlaybackSpeed() { return player.getPlaybackSpeed(); }
+
+  @Override
+  public void setPlaybackSpeed(float speed) { player.setPlaybackSpeed(speed); }
+
   // Internal methods.
 
   private void buildRenderers(Context context, DrmSessionManager drmSessionManager,
@@ -676,7 +682,6 @@ public final class SimpleExoPlayer implements ExoPlayer {
         setVideoSurfaceInternal(null);
       }
     }
-
   }
 
 }
