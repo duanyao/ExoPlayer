@@ -18,6 +18,7 @@ package com.google.android.exoplayer2.video;
 import com.google.android.exoplayer2.C;
 import com.google.android.exoplayer2.ExoPlaybackException;
 import com.google.android.exoplayer2.Format;
+import com.google.android.exoplayer2.decoder.DecoderInputBuffer;
 import com.google.android.exoplayer2.drm.DrmInitData;
 import com.google.android.exoplayer2.drm.DrmSessionManager;
 import com.google.android.exoplayer2.mediacodec.MediaCodecInfo;
@@ -25,6 +26,7 @@ import com.google.android.exoplayer2.mediacodec.MediaCodecRenderer;
 import com.google.android.exoplayer2.mediacodec.MediaCodecSelector;
 import com.google.android.exoplayer2.mediacodec.MediaCodecUtil;
 import com.google.android.exoplayer2.mediacodec.MediaCodecUtil.DecoderQueryException;
+import com.google.android.exoplayer2.util.KeyFrameSynthesizer;
 import com.google.android.exoplayer2.util.MimeTypes;
 import com.google.android.exoplayer2.util.TraceUtil;
 import com.google.android.exoplayer2.util.Util;
@@ -34,6 +36,7 @@ import android.annotation.SuppressLint;
 import android.annotation.TargetApi;
 import android.content.Context;
 import android.media.MediaCodec;
+import android.media.MediaCodecInfo.CodecCapabilities;
 import android.media.MediaCrypto;
 import android.media.MediaFormat;
 import android.os.Handler;
@@ -83,6 +86,7 @@ public class MediaCodecVideoRenderer extends MediaCodecRenderer {
   private int lastReportedHeight;
   private int lastReportedUnappliedRotationDegrees;
   private float lastReportedPixelWidthHeightRatio;
+  private boolean maybeSynthesizeKeyFrame;
 
   /**
    * @param context A context.
@@ -167,6 +171,7 @@ public class MediaCodecVideoRenderer extends MediaCodecRenderer {
     lastReportedWidth = -1;
     lastReportedHeight = -1;
     lastReportedPixelWidthHeightRatio = -1;
+    maybeSynthesizeKeyFrame = true;
   }
 
   @Override
@@ -244,6 +249,7 @@ public class MediaCodecVideoRenderer extends MediaCodecRenderer {
     consecutiveDroppedFrameCount = 0;
     joiningDeadlineMs = joining && allowedJoiningTimeMs > 0
         ? (SystemClock.elapsedRealtime() + allowedJoiningTimeMs) : -1;
+    maybeSynthesizeKeyFrame = true;
   }
 
   @Override
@@ -382,6 +388,23 @@ public class MediaCodecVideoRenderer extends MediaCodecRenderer {
     return newFormat.sampleMimeType.equals(oldFormat.sampleMimeType)
         && (codecIsAdaptive
         || (oldFormat.width == newFormat.width && oldFormat.height == newFormat.height));
+  }
+
+  @Override
+  protected void onQueueInputBuffer(DecoderInputBuffer buffer) {
+    if (maybeSynthesizeKeyFrame) {
+      if (buffer.getFlag(C.BUFFER_FLAG_INTRA_REFRESH)) {
+        Format format = getFormat();
+        ByteBuffer keyFrameData = KeyFrameSynthesizer.synthesizeKeyFrame(buffer.data,
+            format.sampleMimeType, format.width, format.height);
+        if (keyFrameData != null) {
+          buffer.data = keyFrameData;
+          buffer.clearFlag(C.BUFFER_FLAG_INTRA_REFRESH);
+          buffer.addFlag(C.BUFFER_FLAG_KEY_FRAME);
+        }
+      }
+      maybeSynthesizeKeyFrame = false;
+    }
   }
 
   @Override
