@@ -310,7 +310,7 @@ int decodePacket(AVCodecContext *context, AVPacket *packet, jboolean endOfInput,
     if (result != 0 && result != AVERROR_EOF) {
       logError(">>>>avcodec_send_packet", result);
       if (AVERROR_INVALIDDATA == result) {
-        LOGE(">>>>avcodec_send_packet: invalid data, try to continue.");
+        //LOGE(">>>>avcodec_send_packet: invalid data, try to continue.");
         result = 0;
       } else {
         return result;
@@ -319,7 +319,7 @@ int decodePacket(AVCodecContext *context, AVPacket *packet, jboolean endOfInput,
       LOGE(">>>>avcodec_send_packet OK. pts=%lld", packet->pts);
     }
   } else {
-    LOGE(">>>>avcodec_send_packet: empty");
+    //LOGE(">>>>avcodec_send_packet: empty");
   }
 
   // Dequeue output data until it runs out.
@@ -336,7 +336,7 @@ int decodePacket(AVCodecContext *context, AVPacket *packet, jboolean endOfInput,
     if (result != 0) {
       av_frame_free(&frame);
       if (result == AVERROR(EAGAIN)) {
-        LOGE(">>>>after avcodec_receive_frame: EAGAIN(%d)", EAGAIN);
+        //LOGE(">>>>after avcodec_receive_frame: EAGAIN(%d)", EAGAIN);
         break;
       } else {
         //if (result != AVERROR_EOF) {

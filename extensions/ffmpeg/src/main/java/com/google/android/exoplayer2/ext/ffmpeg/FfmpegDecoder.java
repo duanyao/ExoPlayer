@@ -92,6 +92,7 @@ import java.util.List;
   private long swsContext;
   private ByteBuffer scaledFrame;
   private boolean isDecodeOnly;
+  private long startTime;
 
   public FfmpegDecoder(int numInputBuffers, int numOutputBuffers, int initialInputBufferSize,
       String mimeType, List<byte[]> initializationData) throws FfmpegDecoderException {
@@ -105,6 +106,8 @@ import java.util.List;
       throw new FfmpegDecoderException("Initialization failed.");
     }
     setInitialInputBufferSize(initialInputBufferSize);
+    startTime = System.currentTimeMillis();
+    System.out.println(">>>>FfmpegDecoder<init>, t=" + startTime);
   }
 
   @Override
@@ -149,7 +152,9 @@ import java.util.List;
       inputSize = 0;
       System.out.println(">>>>FfmpegDecoder:decode:input EOS: input ts=" + inputBuffer.timeUs);
     }
-
+    if (inputSize > 0) {
+      System.out.println(">>>>FfmpegDecoder:input, dt=" + (System.currentTimeMillis() - startTime));
+    }
     ByteBuffer outputData = outputBuffer.init(Long.MIN_VALUE, isAudio? AUDIO_OUTPUT_BUFFER_SIZE : VIDEO_OUTPUT_BUFFER_SIZE);
     int result = nativeDecode(nativeContext, inputData, inputSize, inputBuffer.timeUs, inputBuffer.isEndOfStream(), outputData, outputData.limit());
     if (result < 0) {
@@ -172,7 +177,7 @@ import java.util.List;
 
     if (isVideo) {
       if (result == VIDEO_OUTPUT_BUFFER_SIZE) {
-        System.out.println(">>>>FfmpegDecoder:got video frame");
+        System.out.println(">>>>FfmpegDecoder:got video frame,dt=" + (System.currentTimeMillis() - startTime));
         outputData.order(ByteOrder.nativeOrder());
         avFrame = outputData.getLong();
         outputBuffer.timeUs = nativeGetPresentationTime(avFrame);
@@ -198,7 +203,7 @@ import java.util.List;
           outputBuffer.pixelFormat = Bitmap.Config.RGB_565;
         }
       } else {
-        System.out.println(">>>>FfmpegDecoder:not got video frame");
+        //System.out.println(">>>>FfmpegDecoder:not got video frame");
         outputData.limit(0);
       }
     } else if (inputSize > 0) {

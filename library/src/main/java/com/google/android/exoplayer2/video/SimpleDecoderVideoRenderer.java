@@ -50,11 +50,11 @@ public abstract class SimpleDecoderVideoRenderer extends BaseRenderer {
     private Format inputFormat;
     private SimpleDecoder<DecoderInputBuffer, ? extends SimpleOutputBuffer,
             ? extends AudioDecoderException> decoder;
-    private DecoderInputBuffer inputBuffer;
     private PriorityQueue<SimpleOutputBuffer> outputBufferQueue;
     private Bitmap bitmap;
     private Surface surface;
 
+    private long lastInputTime;
     private long currentPositionUs;
     private long previusPositionUs;
     private boolean allowPositionDiscontinuity;
@@ -62,6 +62,7 @@ public abstract class SimpleDecoderVideoRenderer extends BaseRenderer {
     private boolean outputStreamEnded;
     private boolean renderedFirstFrame;
     private boolean drawnToSurface;
+    long startTime;
 
     public SimpleDecoderVideoRenderer() {
         this(null, null);
@@ -83,6 +84,8 @@ public abstract class SimpleDecoderVideoRenderer extends BaseRenderer {
                 return (int)(lhs.timeUs - rhs.timeUs);
             }
         });
+        startTime = System.currentTimeMillis();
+        System.out.println(">>>>SimpleDecoderVideoRenderer<init>,t=" + startTime);
     }
 
     // similar to: MediaCodecTrackRenderer.render()
@@ -104,12 +107,12 @@ public abstract class SimpleDecoderVideoRenderer extends BaseRenderer {
         // Rendering loop.
         try {
             TraceUtil.beginSection("drainAndFeed");
-            System.out.println(">>>before dummy input");
+            //System.out.println(">>>before dummy input");
             DecoderInputBuffer input = decoder.dequeueInputBuffer();
             if (input != null) {
                 input.clear();
                 input.data.limit(0);
-                System.out.println(">>>queue dummy input");
+                //System.out.println(">>>queue dummy input");
                 decoder.queueInputBuffer(input);
             }
             while (drainOutputBuffer(positionUs, elapsedRealtimeUs)) {
@@ -121,6 +124,7 @@ public abstract class SimpleDecoderVideoRenderer extends BaseRenderer {
             throw ExoPlaybackException.createForRenderer(e, getIndex());
         }
         codecCounters.ensureUpdated();
+        //System.out.println(">>>>Leave render:ts=" + positionUs + ",dt=" + (System.currentTimeMillis() - startTime));
     }
 
     protected abstract SimpleDecoder<DecoderInputBuffer, ? extends SimpleOutputBuffer,
@@ -190,6 +194,7 @@ public abstract class SimpleDecoderVideoRenderer extends BaseRenderer {
                 buffer.release();
             } else if (buffer.data.remaining() != 0) {
                 outputBufferQueue.add(buffer);
+                System.out.println(">>>>drainOutputBuffer:add to q, ts=" + buffer.timeUs);
                 codecCounters.skippedOutputBufferCount += buffer.skippedOutputBufferCount;
             } else {
                 buffer.release();
@@ -204,14 +209,16 @@ public abstract class SimpleDecoderVideoRenderer extends BaseRenderer {
         // Compute how many microseconds it is until the buffer's presentation time.
         long elapsedSinceStartOfLoopUs = (SystemClock.elapsedRealtime() * 1000) - elapsedRealtimeUs;
         long earlyUs = buffer.timeUs - positionUs - elapsedSinceStartOfLoopUs;
-//        System.out.println(">>>>drainOutputBuffer:ts=" + buffer.timestampUs + ", earlyUs="
-//                + earlyUs + ", positionUs=" + positionUs + ", elapsedSinceStartOfLoopUs=" + elapsedSinceStartOfLoopUs);
+//        System.out.println(">>>>drainOutputBuffer:ts=" + buffer.timeUs + ", earlyUs="
+//                + earlyUs + ", positionUs=" + positionUs + ", elapsedSinceStartOfLoopUs=" + elapsedSinceStartOfLoopUs
+//                + ", dt=" + (System.currentTimeMillis() -startTime)
+//                + ", oq size=" + outputBufferQueue.size());
         if (earlyUs < 30000 || !renderedFirstFrame) {
             outputBufferQueue.poll();
             if (earlyUs < - 30000 && renderedFirstFrame) {
                 buffer.release();
                 codecCounters.skippedOutputBufferCount++;
-                System.out.println(">>>>drainOutputBuffer:skipped, earlyUs=" + earlyUs + ",");
+                System.out.println(">>>>drainOutputBuffer:skipped, earlyUs=" + earlyUs + ", dt=");
                 return true;
             }
         } else {
@@ -221,6 +228,7 @@ public abstract class SimpleDecoderVideoRenderer extends BaseRenderer {
         if (getState() == Renderer.STATE_STARTED) {
             renderBuffer(buffer, earlyUs / 1000);
         } else {
+            System.out.println(">>>>drainOutputBuffer:skipped, state=" + getState() + ", ts=" + buffer.timeUs);
             buffer.release();
         }
         return true;
@@ -228,7 +236,6 @@ public abstract class SimpleDecoderVideoRenderer extends BaseRenderer {
 
     private void renderBuffer(SimpleOutputBuffer buffer, long earlyMs) {
         long t0 = SystemClock.elapsedRealtime();
-        renderedFirstFrame = true;
         if (surface != null) {
             codecCounters.renderedOutputBufferCount++;
             if (bitmap == null || bitmap.getWidth() != buffer.width
@@ -244,7 +251,7 @@ public abstract class SimpleDecoderVideoRenderer extends BaseRenderer {
             canvas.translate(tx, ty);
 
             long remaining = earlyMs - (SystemClock.elapsedRealtime() - t0);
-            if (remaining > 11) {
+            if (renderedFirstFrame && remaining > 11) {
                 try {
                     Thread.sleep(remaining - 10);
                 } catch (InterruptedException e) { }
@@ -253,8 +260,9 @@ public abstract class SimpleDecoderVideoRenderer extends BaseRenderer {
             canvas.drawBitmap(bitmap, 0, 0, null);
             surface.unlockCanvasAndPost(canvas);
 
-            System.out.println(">>>>renderBuffer:rendered " + codecCounters.renderedOutputBufferCount);
-            System.out.println(">>>>renderBuffer:timestamp=" + buffer.timeUs + ",remaining(ms)=" + remaining + ",realtime(ms)=" + SystemClock.elapsedRealtime());
+            System.out.println(">>>>renderBuffer:n=" + codecCounters.renderedOutputBufferCount
+                + ",timestamp=" + buffer.timeUs + ",remaining(ms)=" + remaining
+                + ",dt=" + (System.currentTimeMillis() -startTime));
             if (previusPositionUs > buffer.timeUs) {
                 System.err.println(">>>>renderBuffer:reversed timestamp");
             }
@@ -267,6 +275,7 @@ public abstract class SimpleDecoderVideoRenderer extends BaseRenderer {
         } else {
             codecCounters.skippedOutputBufferCount++;
         }
+        renderedFirstFrame = true;
         buffer.release();
     }
 
@@ -276,23 +285,16 @@ public abstract class SimpleDecoderVideoRenderer extends BaseRenderer {
             return false;
         }
 
+        DecoderInputBuffer inputBuffer = decoder.dequeueInputBuffer();
         if (inputBuffer == null) {
-            System.out.println(">>>feedInputBuffer:dequeue");
-            inputBuffer = decoder.dequeueInputBuffer();
-            if (inputBuffer == null) {
-                return false;
-            }
+            return false;
         }
 
         int result = readSource(formatHolder, inputBuffer);
-        inputBuffer.flip();
-        System.out.println(">>>feedInputBuffer:queue");
-        decoder.queueInputBuffer(inputBuffer);
         inputStreamEnded = inputBuffer.isEndOfStream();
-        if (inputStreamEnded) {
-            System.out.println(">>>>feedInputBuffer:input eos:" + inputBuffer.timeUs);
-        }
-        inputBuffer = null;
+        inputBuffer.flip();
+        decoder.queueInputBuffer(inputBuffer);
+
         if (result == C.RESULT_NOTHING_READ) {
             return false;
         } else if (result == C.RESULT_FORMAT_READ) {
@@ -300,12 +302,13 @@ public abstract class SimpleDecoderVideoRenderer extends BaseRenderer {
             return true;
         } else if (inputStreamEnded) {
             return false;
+        } else {
+            lastInputTime = SystemClock.elapsedRealtime();
+            return true;
         }
-        return true;
     }
 
     private void flushDecoder() {
-        inputBuffer = null;
         SimpleOutputBuffer output;
         while((output = outputBufferQueue.poll()) != null) {
             output.release();
@@ -320,7 +323,8 @@ public abstract class SimpleDecoderVideoRenderer extends BaseRenderer {
 
     @Override
     public boolean isReady() {
-        return inputFormat != null && (isSourceReady() || outputBufferQueue.size() > 0);
+        return inputFormat != null && (isSourceReady() || outputBufferQueue.size() > 0
+            || queuedInputRecently());
     }
 
     @Override
@@ -343,7 +347,6 @@ public abstract class SimpleDecoderVideoRenderer extends BaseRenderer {
 
     @Override
     protected void onDisabled() {
-        inputBuffer = null;
         inputFormat = null;
         outputBufferQueue.clear();
         releaseCodec();
@@ -361,6 +364,10 @@ public abstract class SimpleDecoderVideoRenderer extends BaseRenderer {
     private void onInputFormatChanged(Format newFormat) {
         inputFormat = newFormat;
         eventDispatcher.inputFormatChanged(newFormat);
+    }
+
+    private boolean queuedInputRecently() {
+        return SystemClock.elapsedRealtime() - lastInputTime < 500;
     }
 
     @Override
