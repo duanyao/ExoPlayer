@@ -42,7 +42,7 @@ LOCAL_SRC_FILES := ffmpeg/android-libs/$(TARGET_ARCH_ABI)/$(LOCAL_MODULE).a
 include $(PREBUILT_STATIC_LIBRARY)
 
 include $(CLEAR_VARS)
-LOCAL_MODULE := ffmpeg
+LOCAL_MODULE := exoffmpeg
 LOCAL_SRC_FILES := ffmpeg_jni.cc
 LOCAL_C_INCLUDES := ffmpeg
 LOCAL_STATIC_LIBRARIES := libavcodec libavresample libswresample libswscale libavutil
