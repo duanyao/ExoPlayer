@@ -105,7 +105,9 @@ public class KeyFrameSynthesizer {
             continue;
           }
           Log.d(TAG, "synthesizeKeyFrame: dequeueOutputBuffer ok: flags=" + bufInfo.flags);
-          if ((bufInfo.flags & MediaCodec.BUFFER_FLAG_KEY_FRAME) != 0) {
+          // OMX.Intel.VideoDecoder.AVC set flags of codec config as 3 (BUFFER_FLAG_KEY_FRAME | BUFFER_FLAG_CODEC_CONFIG)
+          if ((bufInfo.flags & MediaCodec.BUFFER_FLAG_KEY_FRAME) != 0 &&
+              (bufInfo.flags & MediaCodec.BUFFER_FLAG_CODEC_CONFIG) == 0) {
             ByteBuffer outBuf = encoder.getOutputBuffers()[outputIdx];
             if (buffer.capacity() < bufInfo.size) {
               buffer = ByteBuffer.allocate(bufInfo.size);
