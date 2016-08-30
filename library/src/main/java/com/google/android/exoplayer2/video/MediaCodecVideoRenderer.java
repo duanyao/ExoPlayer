@@ -254,6 +254,7 @@ public class MediaCodecVideoRenderer extends MediaCodecRenderer {
 
   @Override
   public boolean isReady() {
+    //return true;
     if ((renderedFirstFrame || super.shouldInitCodec()) && super.isReady()) {
       // Ready. If we were joining then we've now joined, so clear the joining deadline.
       joiningDeadlineMs = -1;
@@ -448,7 +449,7 @@ public class MediaCodecVideoRenderer extends MediaCodecRenderer {
       dropOutputBuffer(codec, bufferIndex);
       return true;
     }
-    System.out.println(">>>>MCVR:processOutputBuffer:cur=" + positionUs + ",real=" + adjustedReleaseTimeNs + ",pts=" + bufferPresentationTimeUs);
+    //System.out.println(">>>>MCVR:processOutputBuffer:cur=" + positionUs + ",real=" + adjustedReleaseTimeNs + ",pts=" + bufferPresentationTimeUs);
     if (Util.SDK_INT >= 21) {
       // Let the underlying framework time the release.
       if (earlyUs < 50000) {
