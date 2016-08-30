@@ -26,6 +26,7 @@ import android.graphics.Bitmap;
 
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.util.Arrays;
 import java.util.List;
 
 /**
@@ -150,11 +151,12 @@ import java.util.List;
     if (inputBuffer.isEndOfStream()) {
       inputData.limit(0);
       inputSize = 0;
-      System.out.println(">>>>FfmpegDecoder:decode:input EOS: input ts=" + inputBuffer.timeUs);
+      //System.out.println(">>>>FfmpegDecoder:decode:input EOS: input ts=" + inputBuffer.timeUs);
     }
-    if (inputSize > 0) {
-      System.out.println(">>>>FfmpegDecoder:input, dt=" + (System.currentTimeMillis() - startTime));
-    }
+//    if (inputSize > 0) {
+//      System.out.println(">>>>FfmpegDecoder:input, dt=" + (System.currentTimeMillis() - startTime)
+//        + ",ts=" + inputBuffer.timeUs);
+//    }
     ByteBuffer outputData = outputBuffer.init(Long.MIN_VALUE, isAudio? AUDIO_OUTPUT_BUFFER_SIZE : VIDEO_OUTPUT_BUFFER_SIZE);
     int result = nativeDecode(nativeContext, inputData, inputSize, inputBuffer.timeUs, inputBuffer.isEndOfStream(), outputData, outputData.limit());
     if (result < 0) {
@@ -177,10 +179,11 @@ import java.util.List;
 
     if (isVideo) {
       if (result == VIDEO_OUTPUT_BUFFER_SIZE) {
-        System.out.println(">>>>FfmpegDecoder:got video frame,dt=" + (System.currentTimeMillis() - startTime));
         outputData.order(ByteOrder.nativeOrder());
         avFrame = outputData.getLong();
         outputBuffer.timeUs = nativeGetPresentationTime(avFrame);
+//        System.out.println(">>>>FfmpegDecoder:got video frame,dt=" + (System.currentTimeMillis() - startTime)
+//            + ",ts=" + outputBuffer.timeUs);
         maybeUpdateDimension();
         if (outputData.capacity() >= scaledSize) {
           scaledFrame = outputData;
@@ -223,7 +226,7 @@ import java.util.List;
     int w = nativeGetWidth(avFrame), h = nativeGetHeight(avFrame);
     if (!hasOutputFormat) {
       hasOutputFormat = true;
-      System.out.println(">>>>FfmpegDecoder:got video dim:width=" + w + ",height=" + h);
+      //System.out.println(">>>>FfmpegDecoder:got video dim:width=" + w + ",height=" + h);
     }
 
     if (w != width || h != height) {

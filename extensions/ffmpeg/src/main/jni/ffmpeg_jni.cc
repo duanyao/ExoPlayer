@@ -191,7 +191,7 @@ FUNC(jlong, nativeGetPresentationTime, jlong avFrame) {
 
 FUNC(jlong, nativeCreateSws, jlong jFrame, jint scaledWidth, jint scaledHeight) {
   AVFrame *frame = (AVFrame *) jFrame;
-  LOGE(">>>>nativeCreateSws:sw=%d,sh=%d,w=%d,h=%d,fmt=%d", scaledWidth, scaledHeight, frame->width, frame->height, frame->format);
+  //LOGE(">>>>nativeCreateSws:sw=%d,sh=%d,w=%d,h=%d,fmt=%d", scaledWidth, scaledHeight, frame->width, frame->height, frame->format);
   return (jlong)sws_getContext(
                 frame->width,
                 frame->height,
@@ -282,7 +282,7 @@ AVCodecContext *createContext(JNIEnv *env, AVCodec *codec,
     context->extradata =
         (uint8_t *) av_malloc(size + AV_INPUT_BUFFER_PADDING_SIZE);
     if (!context->extradata) {
-      LOGE(">>>>Failed to allocate extradata.");
+      LOGE("Failed to allocate extradata.");
       releaseContext(context);
       return NULL;
     }
@@ -290,7 +290,7 @@ AVCodecContext *createContext(JNIEnv *env, AVCodec *codec,
   }
   int result = avcodec_open2(context, codec, NULL);
   if (result < 0) {
-    logError(">>>>avcodec_open2", result);
+    logError("avcodec_open2", result);
     releaseContext(context);
     return NULL;
   }
@@ -308,7 +308,7 @@ int decodePacket(AVCodecContext *context, AVPacket *packet, jboolean endOfInput,
   if (packet->size > 0 || endOfInput) {
     result = avcodec_send_packet(context, packet);
     if (result != 0 && result != AVERROR_EOF) {
-      logError(">>>>avcodec_send_packet", result);
+      logError("avcodec_send_packet", result);
       if (AVERROR_INVALIDDATA == result) {
         //LOGE(">>>>avcodec_send_packet: invalid data, try to continue.");
         result = 0;
@@ -316,7 +316,7 @@ int decodePacket(AVCodecContext *context, AVPacket *packet, jboolean endOfInput,
         return result;
       }
     } else {
-      LOGE(">>>>avcodec_send_packet OK. pts=%lld", packet->pts);
+      //LOGE(">>>>avcodec_send_packet OK. pts=%lld", packet->pts);
     }
   } else {
     //LOGE(">>>>avcodec_send_packet: empty");
@@ -328,7 +328,7 @@ int decodePacket(AVCodecContext *context, AVPacket *packet, jboolean endOfInput,
     //LOGE(">>>>before av_frame_alloc.");
     AVFrame *frame = av_frame_alloc();
     if (!frame) {
-      LOGE(">>>Failed to allocate output frame.");
+      LOGE("Failed to allocate output frame.");
       return AVERROR(ENOMEM);
     }
     //LOGE(">>>>before avcodec_receive_frame");
@@ -340,14 +340,14 @@ int decodePacket(AVCodecContext *context, AVPacket *packet, jboolean endOfInput,
         break;
       } else {
         //if (result != AVERROR_EOF) {
-          logError(">>>>avcodec_receive_frame", result);
+          logError("avcodec_receive_frame", result);
         //}
         return result;
       }
     }
 
     if (context->codec_type == AVMEDIA_TYPE_VIDEO) {
-      LOGE(">>>>got video frame:w=%d,h=%d,key=%d,pts=%lld,pkt_pts=%lld", frame->width, frame->height, frame->key_frame, frame->pts, frame->pkt_pts);
+      //LOGE(">>>>got video frame:w=%d,h=%d,key=%d,pts=%lld,pkt_pts=%lld", frame->width, frame->height, frame->key_frame, frame->pts, frame->pkt_pts);
       outSize = sizeof(jlong);
       if (outputLimit < outSize) {
         LOGE("Output buffer size (%d) too small for output data (%d).",
@@ -413,7 +413,7 @@ int decodePacket(AVCodecContext *context, AVPacket *packet, jboolean endOfInput,
       outputBuffer += bufferOutSize;
       outSize += bufferOutSize;
 #else
-      LOGE(">>>>Error: ENABLE_AUDIO not defined, but decoding audio.");
+      LOGE("Error: ENABLE_AUDIO not defined, but decoding audio.");
       av_frame_free(&frame);
 #endif
     }
@@ -424,7 +424,7 @@ int decodePacket(AVCodecContext *context, AVPacket *packet, jboolean endOfInput,
 void logError(const char *functionName, int errorNumber) {
   char *buffer = (char *) malloc(ERROR_STRING_BUFFER_LENGTH * sizeof(char));
   av_strerror(errorNumber, buffer, ERROR_STRING_BUFFER_LENGTH);
-  LOGE(">>>>Error in %s: %s", functionName, buffer);
+  LOGE("Error in %s: %s", functionName, buffer);
   free(buffer);
 }
 
@@ -439,7 +439,7 @@ void releaseContext(AVCodecContext *context) {
     context->opaque = NULL;
   }
 #endif
-  LOGE(">>>>releaseContext");
+  //LOGE(">>>>releaseContext");
   avcodec_free_context(&context);
 }
 

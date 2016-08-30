@@ -189,12 +189,12 @@ public abstract class SimpleDecoderVideoRenderer extends BaseRenderer {
 
         while ((buffer = decoder.dequeueOutputBuffer()) != null) {
             if (buffer.isEndOfStream()) {
-                System.out.println(">>>>drainOutputBuffer:output eos:" + buffer.timeUs);
+                //System.out.println(">>>>drainOutputBuffer:output eos:" + buffer.timeUs);
                 outputStreamEnded = true;
                 buffer.release();
             } else if (buffer.data.remaining() != 0) {
                 outputBufferQueue.add(buffer);
-                System.out.println(">>>>drainOutputBuffer:add to q, ts=" + buffer.timeUs);
+                //System.out.println(">>>>drainOutputBuffer:add to q, ts=" + buffer.timeUs);
                 codecCounters.skippedOutputBufferCount += buffer.skippedOutputBufferCount;
             } else {
                 buffer.release();
@@ -218,7 +218,7 @@ public abstract class SimpleDecoderVideoRenderer extends BaseRenderer {
             if (earlyUs < - 30000 && renderedFirstFrame) {
                 buffer.release();
                 codecCounters.skippedOutputBufferCount++;
-                System.out.println(">>>>drainOutputBuffer:skipped, earlyUs=" + earlyUs + ", dt=");
+                //System.out.println(">>>>drainOutputBuffer:skipped, earlyUs=" + earlyUs + ", dt=");
                 return true;
             }
         } else {
@@ -228,7 +228,7 @@ public abstract class SimpleDecoderVideoRenderer extends BaseRenderer {
         if (getState() == Renderer.STATE_STARTED) {
             renderBuffer(buffer, earlyUs / 1000);
         } else {
-            System.out.println(">>>>drainOutputBuffer:skipped, state=" + getState() + ", ts=" + buffer.timeUs);
+            //System.out.println(">>>>drainOutputBuffer:skipped, state=" + getState() + ", ts=" + buffer.timeUs);
             buffer.release();
         }
         return true;
@@ -260,9 +260,9 @@ public abstract class SimpleDecoderVideoRenderer extends BaseRenderer {
             canvas.drawBitmap(bitmap, 0, 0, null);
             surface.unlockCanvasAndPost(canvas);
 
-            System.out.println(">>>>renderBuffer:n=" + codecCounters.renderedOutputBufferCount
-                + ",timestamp=" + buffer.timeUs + ",remaining(ms)=" + remaining
-                + ",dt=" + (System.currentTimeMillis() -startTime));
+//            System.out.println(">>>>renderBuffer:n=" + codecCounters.renderedOutputBufferCount
+//                + ",timestamp=" + buffer.timeUs + ",remaining(ms)=" + remaining
+//                + ",dt=" + (System.currentTimeMillis() -startTime));
             if (previusPositionUs > buffer.timeUs) {
                 System.err.println(">>>>renderBuffer:reversed timestamp");
             }
